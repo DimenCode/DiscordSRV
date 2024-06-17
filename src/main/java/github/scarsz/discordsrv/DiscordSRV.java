@@ -66,6 +66,8 @@ import net.dv8tion.jda.api.exceptions.HierarchyException;
 import net.dv8tion.jda.api.exceptions.PermissionException;
 import net.dv8tion.jda.api.exceptions.RateLimitedException;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
+import net.dv8tion.jda.api.interactions.components.Button;
 import net.dv8tion.jda.api.requests.CloseCode;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.RestAction;
@@ -142,6 +144,10 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"unused", "WeakerAccess", "ConstantConditions"})
 public class DiscordSRV extends JavaPlugin {
+
+    public String winnerRoleId = getConfig().getString("DiscordDropMessageWinnerRoleId");
+    public String DropRewardChannelId = getConfig().getString("DiscordDropMessageChannelId");
+
 
     public static final ApiManager api = new ApiManager();
     public static boolean isReady = false;
@@ -462,6 +468,28 @@ public class DiscordSRV extends JavaPlugin {
         }
     }
 
+    public void sendDropMessage() {
+        TextChannel textChannel = getJda().getTextChannelById(getConfig().getString("DiscordDropMessageChannelId"));
+        Button button = Button.success("drop-reward-button", "Claim !");
+
+        Message message = new MessageBuilder()
+                .append("***A wild reward has appeared !*** Quick, claim it before anyone can !")
+                .setActionRows(ActionRow.of(button))
+                .build();
+
+        textChannel.sendMessage(message).queue();
+    }
+
+    /**
+     * Added by Dimen, initializes a scheduler to send the drop message at a random time (in mc ticks)
+     * of course this means the server has to be online
+     */
+    public void initDropMessage() {
+        Random random = new Random();
+        long rand = random.nextInt(100) * 20;
+        Bukkit.getScheduler().runTaskLater(this, () -> sendDropMessage(), rand);
+    }
+
     @Override
     public void onEnable() {
         if (++DebugUtil.initializationCount > 1) {
@@ -488,6 +516,14 @@ public class DiscordSRV extends JavaPlugin {
         if (Bukkit.getWorlds().size() > 0) {
             playerDataFolder = new File(Bukkit.getWorlds().get(0).getWorldFolder().getAbsolutePath(), "/playerdata");
         }
+
+        // changes by Dimen here (added)
+        if (this.getConfig().getString("DiscordDropMessageChannelId").equals("000000000000000000") &&
+                this.getConfig().getString("DiscordDropMessageWinnerRoleId").equals("000000000000000000")) {
+
+            initDropMessage();
+        }
+
     }
 
     public void disablePlugin() {
@@ -848,6 +884,7 @@ public class DiscordSRV extends JavaPlugin {
                     .addEventListeners(new DiscordConsoleListener())
                     .addEventListeners(new DiscordAccountLinkListener())
                     .addEventListeners(new DiscordDisconnectListener())
+                    .addEventListeners(new DiscordButtonListener())
                     .addEventListeners(api)
                     .addEventListeners(groupSynchronizationManager)
                     .setContextEnabled(false)
