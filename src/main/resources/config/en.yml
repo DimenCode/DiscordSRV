@@ -32,6 +32,41 @@ Channels: {"global": "000000000000000000"}
 # Console channel numerical ID (NOT NAME), leave blank to disable the console channel all together
 DiscordConsoleChannelId: "000000000000000000"
 
+# added by Dimen :
+# id of the channel where you want the bot to send the drop reward messages (leaving it empty will disable drop messages)
+DiscordDropMessageChannelId: ""
+# id of the only channel where it is possible to use commands (leaving it empty will allow the use of commands anywhere)
+DiscordCommandChannelId: ""
+# Message sent when successfully using the reset-all command
+DiscordResetAllMessage: "**All existing scores have been set to 0**."
+# Message sent when you don't have the necessary permissions to run a command
+DiscordNoPermsMessage: "you don't have permission to do that"
+# Message sent when you successfully run the !gems command
+# 'amount' will be replaced by the amount of gems (you can repeat it or remove it if you want)
+DiscordShowGemsMessage: "**You currently have amount Gems.**"
+# Message sent to the user after interacting with the fake purge button (time to get funny)
+DiscordPurgeButtonMessage: "Just kidding lol"
+# Message sent when a user clicked on the button to claim a Gem
+# ''amount' will be replaced by the amount of gems, 'name' will be replaced by the user's name (you can repeat them or remove them if you want)'
+DiscordGemClaimMessage: "**name has won ! GG ! They now have amount Gems !**"
+# id of the channel where the shop will be displayed (leaving it empty will disable/not update the shop)
+# WARNING : the last message will be deleted everytime the server restarts
+DiscordDiscordShopChannelId: ""
+# Content of the shop, makes sure to follow the right syntax, for more info, look up yml config lists
+# THE FOLLOWING ITEMS ARE EXAMPLES, replace them with what you want, you can have no items just like you can have one hundred
+ShopItemsList:
+  - item1:
+      name: "Item 1"
+      price: 5
+      description: "This is a description"
+  - item2:
+      name: "Item 2"
+      price: 10
+      lore: "This is another description"
+# the minimum and maximum amount of time (in minutes) you want in between the drop reward messages
+MaxTimeDelay: 900
+MinTimeDelay: 1200
+
 # Invitation link shown to players when using /discord and on the message shown to unlinked players when linking is enforced
 DiscordInviteLink: "https://discord.gg/changethisintheconfig.yml"
 

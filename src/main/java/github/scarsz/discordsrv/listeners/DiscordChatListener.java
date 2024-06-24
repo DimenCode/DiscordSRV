@@ -29,11 +29,17 @@ import github.scarsz.discordsrv.hooks.VaultHook;
 import github.scarsz.discordsrv.hooks.world.MultiverseCoreHook;
 import github.scarsz.discordsrv.objects.proxy.CommandSenderDynamicProxy;
 import github.scarsz.discordsrv.util.*;
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.MessageBuilder;
+import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageSticker;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
+import net.dv8tion.jda.api.interactions.components.Button;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.format.TextColor;
@@ -43,15 +49,22 @@ import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
+import org.json.JSONObject;
 
+import java.awt.*;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import static github.scarsz.discordsrv.DiscordSRV.config;
 import static github.scarsz.discordsrv.util.MessageFormatResolver.getMessageFormat;
 
 public class DiscordChatListener extends ListenerAdapter {
@@ -62,9 +75,135 @@ public class DiscordChatListener extends ListenerAdapter {
         if ((event.getMember() == null && !event.isWebhookMessage()) || DiscordUtil.getJda() == null || event.getAuthor().equals(DiscordUtil.getJda().getSelfUser()))
             return;
 
+        // added by Dimen here
+        if (config().getString("DiscordCommandChannelId").isEmpty() || event.getChannel().getId().equals(config().getString("DiscordCommandChannelId"))) {
+            if (event.getMessage().getContentRaw().startsWith("!gem")) {
+                JSONObject jsonData;
+
+                // bunch of stuff to get the amount of gems
+                try {
+                    String content = new String(Files.readAllBytes(Paths.get("gems.json")));
+                    jsonData = new JSONObject(content);
+                } catch (IOException | org.json.JSONException e) {
+                    // If the file doesn't exist or is not valid JSON, create a new JSONObject
+                    jsonData = new JSONObject();
+                }
+
+                if (event.getMessage().getContentRaw().equalsIgnoreCase("!gems") || event.getMessage().getContentRaw().equalsIgnoreCase("!gem")) {
+                    // no arguments means the user only wants to see their gems
+
+                    if (jsonData.keySet().contains(event.getMember().getId())) {
+                        // if it already contains the member id, I get the value associated to this id
+                        String reply = config().getString("DiscordShowGemsMessage");
+                        reply = reply.replaceAll("amount", "" + jsonData.get(event.getMember().getId()));
+                        event.getMessage().reply(reply).queue();
+                    } else {
+                        // otherwise, if the member doesn't have a score at all
+                        String reply = config().getString("DiscordShowGemsMessage");
+                        reply = reply.replaceAll("amount", "0");
+                        event.getMessage().reply(reply).queue();
+                    }
+                }
+                // reset-all command
+                else if (event.getMessage().getContentRaw().equalsIgnoreCase("!gems reset-all") || event.getMessage().getContentRaw().equalsIgnoreCase("!gem reset-all")) {
+                    if (event.getMember().hasPermission(Permission.ADMINISTRATOR)) {
+                        // makes so only administrators can use this
+                        for (String id : jsonData.keySet()) {
+                            jsonData.put(id, 0); // set everyone's gems to 0
+                        }
+
+                        try (FileWriter file = new FileWriter("gems.json")) { // write the changes to the json file
+                            file.write(jsonData.toString());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                        event.getMessage().reply(config().getString("DiscordResetAllMessage")).queue();
+                    }
+                    else event.getMessage().reply(config().getString("DiscordNoPermsMessage")).queue();
+                }
+                // gem edit command
+                else if (event.getMessage().getContentRaw().startsWith("!gems edit ") || event.getMessage().getContentRaw().startsWith("!gem edit ")) {
+                    if (event.getMember().hasPermission(Permission.ADMINISTRATOR)) {
+                        String[] commandAsTab = event.getMessage().getContentRaw().split(" "); // get the user id
+                        if (commandAsTab.length == 4) { // if there is the correct amount of argument
+                            String userId = event.getMessage().getMentionedMembers().get(0).getId(); // get the user id
+                            int amount = Integer.parseInt(commandAsTab[3]); // get the new gem amount
+
+                            if (event.getGuild().getMemberById(userId) != null) {
+                                // if the member associated with the given id exists
+                                int previousVal = jsonData.getInt(userId);
+                                jsonData.put(userId, amount); // change the value
+
+                                if (jsonData.keySet().contains(userId)) {
+                                    // if it already contains the member id, I get the value associated to this id
+                                    event.getMessage().reply("Changed " + event.getGuild().getMemberById(userId).getUser().getEffectiveName() + "'s Gems, from " + previousVal + " to " + amount).queue();
+                                } else
+                                    // otherwise, if the member doesn't have a score at all
+                                    event.getMessage().reply("Changed " + event.getGuild().getMemberById(userId).getUser().getEffectiveName() + "'s Gems, from 0 to " + amount).queue();
+
+                                try (FileWriter file = new FileWriter("gems.json")) { // write the changes to the json file
+                                    file.write(jsonData.toString());
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            } else
+                                event.getMessage().reply("The provided user id doesn't match anyone in this server.").queue();
+
+                        }
+                        else event.getMessage().reply("Wrong command syntax, should be '!gems edit [UserId] [Amount]'.").queue();
+
+                    }
+                    else event.getMessage().reply(config().getString("DiscordNoPermsMessage")).queue();
+                }
+
+            }
+            else if (event.getMessage().getContentRaw().startsWith("!leaderboard") || event.getMessage().getContentRaw().startsWith("!lb")) {
+                JSONObject jsonData;
+
+                // bunch of stuff to get the amount of gems
+                try {
+                    String content = new String(Files.readAllBytes(Paths.get("gems.json")));
+                    jsonData = new JSONObject(content);
+                } catch (IOException | org.json.JSONException e) {
+                    // If the file doesn't exist or is not valid JSON, create a new JSONObject
+                    jsonData = new JSONObject();
+                }
+
+                StringJoiner joiner = new StringJoiner("\n");
+                for (String ids : jsonData.keySet()) {
+                    joiner.add("- " + event.getJDA().getUserById(ids).getEffectiveName() + " has **" + jsonData.getInt(ids) + "** Gems");
+                }
+
+                EmbedBuilder embedBuilder = new EmbedBuilder();
+                embedBuilder.setTitle("List of everyone's Gems");
+                embedBuilder.setDescription(joiner.toString());
+                embedBuilder.setThumbnail("https://i.imgur.com/t86Z2q1.png");
+                embedBuilder.setColor(new Color(0x00D745));
+
+
+
+                event.getMessage().reply(new MessageBuilder()
+                        .setEmbeds(embedBuilder.build())
+                        .setActionRows(ActionRow.of(Button.danger("purge-all-troll", "Purge All")))
+                        .build())
+                        .queue();
+            }
+
+            else if (event.getMessage().getContentRaw().equalsIgnoreCase("!update-shop")) {
+                if (event.getMember().hasPermission(Permission.ADMINISTRATOR)) {
+                    if (!config().getString("DiscordDiscordShopChannelId").isEmpty()) {
+                        DiscordSRV.getPlugin().updateShop();
+                    }
+                    else event.getMessage().reply("Channel ID was not specified in config").queue();
+                }
+                else event.getMessage().reply(config().getString("DiscordNoPermsMessage")).queue();
+            }
+        }
+
         // block webhooks
         if (event.isWebhookMessage()) {
-            if (DiscordSRV.config().getBoolean("DiscordChatChannelBlockWebhooks")) {
+            if (config().getBoolean("DiscordChatChannelBlockWebhooks")) {
                 DiscordSRV.debug(Debug.DISCORD_TO_MINECRAFT, "Received Discord message from webhook" + event.getAuthor() + " but DiscordChatChannelBlockWebhooks is on");
                 return;
             }
@@ -101,10 +240,10 @@ public class DiscordChatListener extends ListenerAdapter {
         message = message.replace("\u001B", "");
         
         // return if should not send discord chat
-        if (!DiscordSRV.config().getBoolean("DiscordChatChannelDiscordToMinecraft")) return;
+        if (!config().getBoolean("DiscordChatChannelDiscordToMinecraft")) return;
 
         // enforce required account linking
-        if (DiscordSRV.config().getBoolean("DiscordChatChannelRequireLinkedAccount") && !event.getAuthor().isBot()) {
+        if (config().getBoolean("DiscordChatChannelRequireLinkedAccount") && !event.getAuthor().isBot()) {
             if (DiscordSRV.getPlugin().getAccountLinkManager() == null) {
                 event.getAuthor().openPrivateChannel().queue(privateChannel -> privateChannel.sendMessage(LangUtil.Message.FAILED_TO_CHECK_LINKED_ACCOUNT.toString()).queue());
                 DiscordUtil.deleteMessage(event.getMessage());
@@ -150,21 +289,21 @@ public class DiscordChatListener extends ListenerAdapter {
         }
 
         // block bots
-        if (DiscordSRV.config().getBoolean("DiscordChatChannelBlockBots") && event.getAuthor().isBot() && !event.isWebhookMessage()) {
+        if (config().getBoolean("DiscordChatChannelBlockBots") && event.getAuthor().isBot() && !event.isWebhookMessage()) {
             DiscordSRV.debug(Debug.DISCORD_TO_MINECRAFT, "Received Discord message from bot " + event.getAuthor() + " but DiscordChatChannelBlockBots is on");
             return;
         }
 
         // blocked ids
-        if (DiscordSRV.config().getStringList("DiscordChatChannelBlockedIds").contains(event.getAuthor().getId())) {
+        if (config().getStringList("DiscordChatChannelBlockedIds").contains(event.getAuthor().getId())) {
             DiscordSRV.debug(Debug.DISCORD_TO_MINECRAFT, "Received Discord message from user " + event.getAuthor() + " but they are on the DiscordChatChannelBlockedIds list");
             return;
         }
 
         // blocked roles
         if (!event.isWebhookMessage()) {
-            boolean hasRole = DiscordSRV.config().getStringList("DiscordChatChannelBlockedRolesIds").stream().anyMatch(id -> event.getMember().getRoles().stream().anyMatch(r -> r.getId().equals(id)));
-            boolean whitelist = DiscordSRV.config().getBoolean("DiscordChatChannelBlockedRolesAsWhitelist");
+            boolean hasRole = config().getStringList("DiscordChatChannelBlockedRolesIds").stream().anyMatch(id -> event.getMember().getRoles().stream().anyMatch(r -> r.getId().equals(id)));
+            boolean whitelist = config().getBoolean("DiscordChatChannelBlockedRolesAsWhitelist");
             if (whitelist != hasRole) {
                 DiscordSRV.debug(Debug.DISCORD_TO_MINECRAFT, "Received Discord message from user " + event.getAuthor() + " but they " + (whitelist ? "don't " : "") + "have a role from the DiscordChatChannelBlockedRolesIds list");
                 event.getMessage().addReaction("❌").queue();
@@ -206,13 +345,13 @@ public class DiscordChatListener extends ListenerAdapter {
             }
         }
 
-        if (message.length() > DiscordSRV.config().getInt("DiscordChatChannelTruncateLength")) {
+        if (message.length() > config().getInt("DiscordChatChannelTruncateLength")) {
             event.getMessage().addReaction("\uD83D\uDCAC").queue(v -> event.getMessage().addReaction("❗").queue());
-            message = message.substring(0, DiscordSRV.config().getInt("DiscordChatChannelTruncateLength"));
+            message = message.substring(0, config().getInt("DiscordChatChannelTruncateLength"));
         }
 
         // strip colors if role doesn't have permission
-        List<String> rolesAllowedToColor = DiscordSRV.config().getStringList("DiscordChatChannelRolesAllowedToUseColorCodesInChat");
+        List<String> rolesAllowedToColor = config().getStringList("DiscordChatChannelRolesAllowedToUseColorCodesInChat");
         boolean shouldStripColors = !rolesAllowedToColor.contains("@everyone");
         if (!event.isWebhookMessage()) {
             for (Role role : event.getMember().getRoles())
@@ -239,7 +378,7 @@ public class DiscordChatListener extends ListenerAdapter {
             return;
         }
 
-        String emojiBehavior = DiscordSRV.config().getString("DiscordChatChannelEmojiBehavior");
+        String emojiBehavior = config().getString("DiscordChatChannelEmojiBehavior");
         boolean hideEmoji = emojiBehavior.equalsIgnoreCase("hide");
         if (hideEmoji && StringUtils.isBlank(EmojiParser.removeAllEmojis(message))) {
             DiscordSRV.debug(Debug.DISCORD_TO_MINECRAFT, "Ignoring message from " + event.getAuthor() + " because it became completely blank after removing unicode emojis");
@@ -322,7 +461,7 @@ public class DiscordChatListener extends ListenerAdapter {
                 event.getAuthor()
         );
 
-        if (DiscordSRV.config().getBoolean("DiscordChatChannelBroadcastDiscordMessagesToConsole")) {
+        if (config().getBoolean("DiscordChatChannelBroadcastDiscordMessagesToConsole")) {
             DiscordSRV.info(LangUtil.InternalMessage.CHAT + ": " + MessageUtil.strip(MessageUtil.toLegacy(postEvent.getMinecraftMessage()).replace("»", ">")));
         }
     }
@@ -355,7 +494,7 @@ public class DiscordChatListener extends ListenerAdapter {
             return true;
         }
         DiscordSRV.getPlugin().broadcastMessageToMinecraftServer(DiscordSRV.getPlugin().getDestinationGameChannelNameForTextChannel(event.getChannel()), component, event.getAuthor());
-        if (DiscordSRV.config().getBoolean("DiscordChatChannelBroadcastDiscordMessagesToConsole"))
+        if (config().getBoolean("DiscordChatChannelBroadcastDiscordMessagesToConsole"))
             DiscordSRV.info(LangUtil.InternalMessage.CHAT + ": " + MessageUtil.strip(MessageUtil.toLegacy(component).replace("»", ">")));
         return false;
     }
@@ -413,10 +552,10 @@ public class DiscordChatListener extends ListenerAdapter {
     }
 
     private boolean processPlayerListCommand(GuildMessageReceivedEvent event, String message) {
-        if (!DiscordSRV.config().getBoolean("DiscordChatChannelListCommandEnabled")) return false;
-        if (!StringUtils.trimToEmpty(message).equalsIgnoreCase(DiscordSRV.config().getString("DiscordChatChannelListCommandMessage"))) return false;
+        if (!config().getBoolean("DiscordChatChannelListCommandEnabled")) return false;
+        if (!StringUtils.trimToEmpty(message).equalsIgnoreCase(config().getString("DiscordChatChannelListCommandMessage"))) return false;
 
-        int expiration = DiscordSRV.config().getInt("DiscordChatChannelListCommandExpiration") * 1000;
+        int expiration = config().getInt("DiscordChatChannelListCommandExpiration") * 1000;
         String playerListMessage;
         if (PlayerUtil.getOnlinePlayers(true).size() == 0) {
             playerListMessage = PlaceholderUtil.replacePlaceholdersToDiscord(LangUtil.Message.PLAYER_LIST_COMMAND_NO_PLAYERS.toString());
@@ -463,7 +602,7 @@ public class DiscordChatListener extends ListenerAdapter {
                 DiscordUtil.sendMessage(event.getChannel(), listCommandMessageEvent.getPlayerListMessage(), listCommandMessageEvent.getExpiration());
 
                 // expire message after specified time
-                if (listCommandMessageEvent.getExpiration() > 0 && DiscordSRV.config().getBoolean("DiscordChatChannelListCommandExpirationDeleteRequest")) {
+                if (listCommandMessageEvent.getExpiration() > 0 && config().getBoolean("DiscordChatChannelListCommandExpirationDeleteRequest")) {
                     event.getMessage().delete().queueAfter(listCommandMessageEvent.getExpiration(), TimeUnit.MILLISECONDS);
                 }
                 return true;
@@ -476,21 +615,21 @@ public class DiscordChatListener extends ListenerAdapter {
     }
 
     private boolean processConsoleCommand(GuildMessageReceivedEvent event, String message) {
-        if (!DiscordSRV.config().getBoolean("DiscordChatChannelConsoleCommandEnabled")) return false;
+        if (!config().getBoolean("DiscordChatChannelConsoleCommandEnabled")) return false;
 
-        String prefix = DiscordSRV.config().getString("DiscordChatChannelConsoleCommandPrefix");
+        String prefix = config().getString("DiscordChatChannelConsoleCommandPrefix");
         if (prefix.isEmpty()) return false;
         if (!StringUtils.startsWithIgnoreCase(message, prefix)) return false;
         String command = message.substring(prefix.length()).trim();
 
         // check if user has a role able to use this
         Set<String> rolesAllowedToConsole = new HashSet<>();
-        rolesAllowedToConsole.addAll(DiscordSRV.config().getStringList("DiscordChatChannelConsoleCommandRolesAllowed"));
-        rolesAllowedToConsole.addAll(DiscordSRV.config().getStringList("DiscordChatChannelConsoleCommandWhitelistBypassRoles"));
+        rolesAllowedToConsole.addAll(config().getStringList("DiscordChatChannelConsoleCommandRolesAllowed"));
+        rolesAllowedToConsole.addAll(config().getStringList("DiscordChatChannelConsoleCommandWhitelistBypassRoles"));
         boolean allowed = event.isWebhookMessage() || DiscordUtil.memberHasRole(event.getMember(), rolesAllowedToConsole);
         if (!allowed) {
             // tell user that they have no permission
-            if (DiscordSRV.config().getBoolean("DiscordChatChannelConsoleCommandNotifyErrors")) {
+            if (config().getBoolean("DiscordChatChannelConsoleCommandNotifyErrors")) {
                 String e = LangUtil.Message.CHAT_CHANNEL_COMMAND_ERROR.toString()
                         .replace("%user%", event.getAuthor().getName())
                         .replace("%error%", "no permission");
@@ -509,7 +648,7 @@ public class DiscordChatListener extends ListenerAdapter {
 
         // check if user has a role that can bypass the white/blacklist
         boolean canBypass = false;
-        for (String roleName : DiscordSRV.config().getStringList("DiscordChatChannelConsoleCommandWhitelistBypassRoles")) {
+        for (String roleName : config().getStringList("DiscordChatChannelConsoleCommandWhitelistBypassRoles")) {
             boolean isAble = DiscordUtil.memberHasRole(event.getMember(), Collections.singleton(roleName));
             canBypass = isAble || canBypass;
         }
@@ -522,9 +661,9 @@ public class DiscordChatListener extends ListenerAdapter {
         } else {
             // Check the white/black list
             String requestedCommand = command.split(" ")[0];
-            boolean whitelistActsAsBlacklist = DiscordSRV.config().getBoolean("DiscordChatChannelConsoleCommandWhitelistActsAsBlacklist");
+            boolean whitelistActsAsBlacklist = config().getBoolean("DiscordChatChannelConsoleCommandWhitelistActsAsBlacklist");
 
-            List<String> commandsToCheck = DiscordSRV.config().getStringList("DiscordChatChannelConsoleCommandWhitelist");
+            List<String> commandsToCheck = config().getStringList("DiscordChatChannelConsoleCommandWhitelist");
             boolean isListed = commandsToCheck.contains(requestedCommand);
 
             commandIsAbleToBeUsed = isListed ^ whitelistActsAsBlacklist;
@@ -532,7 +671,7 @@ public class DiscordChatListener extends ListenerAdapter {
 
         if (!commandIsAbleToBeUsed) {
             // tell user that the command is not able to be used
-            if (DiscordSRV.config().getBoolean("DiscordChatChannelConsoleCommandNotifyErrors")) {
+            if (config().getBoolean("DiscordChatChannelConsoleCommandNotifyErrors")) {
                 String e = LangUtil.Message.CHAT_CHANNEL_COMMAND_ERROR.toString()
                         .replace("%user%", event.getAuthor().getName())
                         .replace("%error%", "command is not able to be used");
@@ -561,7 +700,7 @@ public class DiscordChatListener extends ListenerAdapter {
                 );
             } catch (IOException e) {
                 DiscordSRV.error(LangUtil.InternalMessage.ERROR_LOGGING_CONSOLE_ACTION + " " + logFile.getAbsolutePath() + ": " + e.getMessage());
-                if (DiscordSRV.config().getBoolean("CancelConsoleCommandIfLoggingFailed")) return true;
+                if (config().getBoolean("CancelConsoleCommandIfLoggingFailed")) return true;
             }
         }
 

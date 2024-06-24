@@ -55,6 +55,7 @@ import github.scarsz.discordsrv.objects.proxy.AlwaysEnabledPluginDynamicProxy;
 import github.scarsz.discordsrv.objects.threads.*;
 import github.scarsz.discordsrv.util.*;
 import lombok.Getter;
+import lombok.Setter;
 import me.scarsz.jdaappender.ChannelLoggingHandler;
 import me.scarsz.jdaappender.LogItem;
 import me.scarsz.jdaappender.LogLevel;
@@ -100,6 +101,7 @@ import org.bukkit.Warning;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
@@ -119,6 +121,7 @@ import org.minidns.record.Record;
 import javax.annotation.CheckReturnValue;
 import javax.net.ssl.SSLContext;
 import javax.security.auth.login.LoginException;
+import java.awt.*;
 import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -127,6 +130,7 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -145,10 +149,6 @@ import java.util.stream.Collectors;
 @SuppressWarnings({"unused", "WeakerAccess", "ConstantConditions"})
 public class DiscordSRV extends JavaPlugin {
 
-    public String winnerRoleId = getConfig().getString("DiscordDropMessageWinnerRoleId");
-    public String DropRewardChannelId = getConfig().getString("DiscordDropMessageChannelId");
-
-
     public static final ApiManager api = new ApiManager();
     public static boolean isReady = false;
     public static boolean updateIsAvailable = false;
@@ -156,6 +156,11 @@ public class DiscordSRV extends JavaPlugin {
     public static boolean invalidBotToken = false;
     private static boolean offlineUuidAvatarUrlNagged = false;
     public static String version = "";
+
+    // added by Dimen here
+    @Getter private Message messageWithTheButton;
+    @Setter @Getter private boolean canBeScheduled;
+    @Setter @Getter private List<List<?>> shopList;
 
     // Managers
     @Getter private AccountLinkManager accountLinkManager;
@@ -469,15 +474,30 @@ public class DiscordSRV extends JavaPlugin {
     }
 
     public void sendDropMessage() {
-        TextChannel textChannel = getJda().getTextChannelById(getConfig().getString("DiscordDropMessageChannelId"));
+
+        this.canBeScheduled = true;
+
+        TextChannel textChannel = DiscordUtil.getJda().getTextChannelById(config().getString("DiscordDropMessageChannelId"));
         Button button = Button.success("drop-reward-button", "Claim !");
 
-        Message message = new MessageBuilder()
-                .append("***A wild reward has appeared !*** Quick, claim it before anyone can !")
+        EmbedBuilder embedBuilder = new EmbedBuilder();
+        embedBuilder.setTitle("A wild Gem has appeared !");
+        embedBuilder.setDescription("Quick, claim it before anyone can !");
+        embedBuilder.setThumbnail("https://i.imgur.com/t86Z2q1.png");
+        embedBuilder.setColor(new Color(0x00D745));
+
+        this.messageWithTheButton = new MessageBuilder()
+                .setEmbeds(embedBuilder.build())
                 .setActionRows(ActionRow.of(button))
                 .build();
 
-        textChannel.sendMessage(message).queue();
+
+//        this.messageWithTheButton = new MessageBuilder()
+//                .append("***A wild reward has appeared !*** Quick, claim it before anyone can !")
+//                .setActionRows(ActionRow.of(button))
+//                .build();
+
+        textChannel.sendMessage(this.messageWithTheButton).queue();
     }
 
     /**
@@ -485,9 +505,59 @@ public class DiscordSRV extends JavaPlugin {
      * of course this means the server has to be online
      */
     public void initDropMessage() {
-        Random random = new Random();
-        long rand = random.nextInt(100) * 20;
-        Bukkit.getScheduler().runTaskLater(this, () -> sendDropMessage(), rand);
+
+        if (this.canBeScheduled) {
+
+            this.canBeScheduled = false;
+
+            Random random = new Random();
+            long rand = random.nextInt(config().getInt("MaxTimeDelay") - config().getInt("MinTimeDelay"));
+            System.out.println(rand + " (" + (rand + config.getInt("MinTimeDelay")) + ")");
+            Bukkit.getScheduler().runTaskLater(this, () -> sendDropMessage(), ((rand + config.getInt("MinTimeDelay")) * 60 * 20)); // to seconds then to mc ticks
+        }
+    }
+
+    public void updateShop() {
+        this.shopList = new ArrayList<>();
+        List<?> itemList = config().getList("ShopItemsList");
+        System.out.println(itemList);
+
+        for (Object itemObj : itemList) {
+            Map<String, Object> item = (Map<String, Object>) itemObj;
+
+            String name = (String) item.get("name");
+            int price = (int) item.get("price");
+            String description = (String) item.get("description");
+
+            this.shopList.add(Arrays.asList(name, price, description)); // add a list to the list
+            // Now you can use these variables to create your items
+        }
+
+        TextChannel textChannel = DiscordUtil.getJda().getTextChannelById(config().getString("DiscordDiscordShopChannelId"));
+
+        StringJoiner joiner = new StringJoiner("\n");
+
+        for (List<?> item : this.shopList) {
+            joiner.add("- " + item.get(0) + " for " + item.get(1) + " Gems (" + item.get(2) + ")");
+        }
+
+        EmbedBuilder embedBuilder = new EmbedBuilder();
+        embedBuilder.setTitle("Shop options");
+        embedBuilder.setDescription(joiner.toString());
+        embedBuilder.setThumbnail("https://i.imgur.com/t86Z2q1.png");
+        embedBuilder.setColor(new Color(0x00D745));
+
+        Message message = new MessageBuilder()
+                .setEmbeds(embedBuilder.build())
+                .setActionRows(ActionRow.of(Button.success("buy-from-shop", "Buy !")))
+                .build();
+
+//        List<Message> messages = textChannel.getHistory().retrievePast(1).complete();
+//        textChannel.deleteMessages(messages).queue();
+
+        textChannel.sendMessage(message).queue();
+
+        System.out.println(shopList);
     }
 
     @Override
@@ -517,13 +587,16 @@ public class DiscordSRV extends JavaPlugin {
             playerDataFolder = new File(Bukkit.getWorlds().get(0).getWorldFolder().getAbsolutePath(), "/playerdata");
         }
 
+
         // changes by Dimen here (added)
-        if (this.getConfig().getString("DiscordDropMessageChannelId").equals("000000000000000000") &&
-                this.getConfig().getString("DiscordDropMessageWinnerRoleId").equals("000000000000000000")) {
+        this.canBeScheduled = true;
+        // if both the given textChannel and the discord role are valid (meaning they exist)
+        if (!config().getString("DiscordDropMessageChannelId").isEmpty()/* &&
+                !config().getString("DiscordDropMessageWinnerRoleId").isEmpty()*/) {
 
-            initDropMessage();
+
+            initDropMessage(); // then I initiate drop message
         }
-
     }
 
     public void disablePlugin() {
@@ -884,7 +957,7 @@ public class DiscordSRV extends JavaPlugin {
                     .addEventListeners(new DiscordConsoleListener())
                     .addEventListeners(new DiscordAccountLinkListener())
                     .addEventListeners(new DiscordDisconnectListener())
-                    .addEventListeners(new DiscordButtonListener())
+                    .addEventListeners(new DiscordButtonListener()) // added by Dimen here
                     .addEventListeners(api)
                     .addEventListeners(groupSynchronizationManager)
                     .setContextEnabled(false)
